@@ -127,9 +127,8 @@ for epoch in range(1, n_epochs+1):
     epoch_level_logger.update(loss_recon_epoch)
 
     print("Epoch: %s/%s | Evaluating loss: %s" % (epoch, n_epochs, loss_recon_epoch))
-    
+
     if epoch % log_interval == 0 or epoch == 1:
         pklSave(epoch_level_logger.list_log, result_save_path+'evaluating_loss.pkl')
         modelname = "epoch-%s.pth.tar" % epoch
         torch.save(model, result_save_path + modelname)
-
