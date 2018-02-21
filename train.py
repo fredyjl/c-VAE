@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 from torch.nn import functional as F
 import torch.optim as optim
 from model import *
+from loss import *
 from util import *
 
 
@@ -21,7 +22,7 @@ parser.add_argument('--contextwin-winsize', type=int, default=21, metavar='N')
 parser.add_argument('--code-size', type=int, default=128, metavar='N')
 args = parser.parse_args()
 
-result_save_path = '/home/yjluo/projects/c-VAE/result_2/'
+result_save_path = '/home/yjluo/projects/c-VAE/result_3/'
 
 n_epochs = args.epochs
 batch_size = args.batch_size
@@ -68,14 +69,31 @@ valid_dataset = MIR1Kdataset(valid_path, transform=Compose([
 
 class Logger(object):
     def __init__(self):
-        self.list_log = []
+        self.list_train_log = []
+        self.list_valid_log = []
+        self.train_or_valid = 'train'
 
     def reset(self):
-        self.list_log = []
+        assert self.train_or_valid in ['train', 'valid']
+        if self.train_or_valid == 'train':
+            self.list_train_log = []
+        else:
+            self.list_valid_log = []
 
     def update(self, val, n_frame=1, n_band=1, contextwin_winsize=1):
         normalized_val = val/n_frame/n_band/contextwin_winsize
-        self.list_log.append(normalized_val)
+        assert self.train_or_valid in ['train', 'valid']
+        if self.train_or_valid == 'train':
+            self.list_train_log.append(normalized_val)
+        else:
+            self.list_valid_log.append(normalized_val)
+
+    def return_list(self):
+        assert self.train_or_valid in ['train', 'valid']
+        if self.train_or_valid == 'train':
+            return self.list_train_log
+        else:
+            return self.list_valid_log
 
 model = Cnn_VAE().cuda()
 model.double()
@@ -85,23 +103,42 @@ song_level_logger = Logger()
 batch_level_logger = Logger()
 for epoch in range(1, n_epochs+1):
     model.train()
-
+    epoch_level_logger.train_or_valid = 'train'
+    song_level_logger.train_or_valid = 'train'
+    batch_level_logger.train_or_valid = 'train'
+    # input per song clip
     for i in range(len(train_dataset)):
         data = train_dataset[i]
         x, y_singer = data['X'], data['y_singer']
         loader = DataLoader(dataset=x, batch_size=batch_size, shuffle=False,\
                             pin_memory=True, num_workers=1)
 
+        # train per batch (of frames in each song clip)
         for X in loader:
             X = Variable(X).cuda()
             X_recon, mu, var = model(X)
-            loss_recon = F.mse_loss(X_recon, X)
+            loss_recon = loss_mse(X_recon, X)
+            loss_kl = loss_kld(mu, var)
+            loss = loss_recon + loss_kl
             optimizer.zero_grad()
-            loss_recon.backward()
+            loss.backward()
             optimizer.step()
 
+            batch_level_logger.update(loss.data.cpu().numpy()[0],
+                          batch_size, spec_nband, contextwin_winsize)
+        
+        train_loss_per_tf = sum(batch_level_logger.return_list())/len(loader)
+        batch_level_logger.reset()
+        song_level_logger.update(train_loss_per_tf)
+    
+    train_loss_epoch = sum(song_level_logger.return_list())/len(train_dataset)
+    song_level_logger.reset()
+    epoch_level_logger.update(train_loss_epoch)
 
     model.eval()
+    epoch_level_logger.train_or_valid = 'valid'
+    song_level_logger.train_or_valid = 'valid'
+    batch_level_logger.train_or_valid = 'valid'
     for j in range(len(valid_dataset)):
         data = valid_dataset[j]
         x, y_singer = data['X'], data['y_singer']
@@ -110,25 +147,37 @@ for epoch in range(1, n_epochs+1):
         for X in loader:
             X = Variable(X).cuda()
             X_recon, mu, var = model(X)
-            loss_recon = F.mse_loss(X_recon, X)
+            loss_recon = loss_mse(X_recon, X)
+            loss_kl = loss_kld(mu, var)
+            loss = loss_recon + loss_kl
             optimizer.zero_grad()
-            loss_recon.backward()
+            loss.backward()
             optimizer.step()
 
-            batch_level_logger.update(loss_recon.data.cpu().numpy()[0],\
+            batch_level_logger.update(loss.data.cpu().numpy()[0], 
                           batch_size, spec_nband, contextwin_winsize)
 
-        loss_recon_per_tf = sum(batch_level_logger.list_log)/len(loader)
+        valid_loss_per_tf = sum(batch_level_logger.return_list())/len(loader)
         batch_level_logger.reset()
-        song_level_logger.update(loss_recon_per_tf)
+        song_level_logger.update(valid_loss_per_tf)
     
-    loss_recon_epoch = sum(song_level_logger.list_log)/len(valid_dataset)
+    valid_loss_epoch = sum(song_level_logger.return_list())/len(valid_dataset)
     song_level_logger.reset()
-    epoch_level_logger.update(loss_recon_epoch)
+    epoch_level_logger.update(valid_loss_epoch)
 
-    print("Epoch: %s/%s | Evaluating loss: %s" % (epoch, n_epochs, loss_recon_epoch))
+    print("Epoch: %s/%s | Training loss: %s | Evaluating loss: %s" % (epoch, n_epochs, train_loss_epoch, valid_loss_epoch))
 
     if epoch % log_interval == 0 or epoch == 1:
-        pklSave(epoch_level_logger.list_log, result_save_path+'evaluating_loss.pkl')
-        modelname = "epoch-%s.pth.tar" % epoch
-        torch.save(model, result_save_path + modelname)
+        epoch_level_logger.train_or_valid = 'train'
+        pklSave(epoch_level_logger.return_list, result_save_path+'train_loss.pkl')
+        epoch_level_logger.train_or_valid = 'valid'
+        pklSave(epoch_level_logger.return_list, result_save_path+'valid_loss.pkl')
+
+        if epoch > 1:
+            if epoch_level_logger.return_list()[-1] >= epoch_level_logger.return_list()[-2]:
+                break
+            elif epoch_level_logger.return_list()[-2] - epoch_level_logger.return_list()[-1] <= 1e-5:
+                break
+            else:
+                modelname = "epoch-%s.pth.tar" % epoch
+                torch.save(model, result_save_path + modelname)

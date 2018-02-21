@@ -131,6 +131,7 @@ class Cnn_clfr(nn.Module):
         )
         # code layer, use linear output without activation
         self.mu_fc = nn.Linear(512, self.n_class)
+        self.var_fc = nn.Linear(512, self.n_class)
         
     def infer_flat_size(self):
         x, _ = self.features(Variable(torch.ones(1, *self.input_size)))
