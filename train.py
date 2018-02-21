@@ -166,18 +166,17 @@ for epoch in range(1, n_epochs+1):
     epoch_level_logger.update(valid_loss_epoch)
 
     print("Epoch: %s/%s | Training loss: %s | Evaluating loss: %s" % (epoch, n_epochs, train_loss_epoch, valid_loss_epoch))
+    
+    epoch_level_logger.train_or_valid = 'train'
+    pklSave(epoch_level_logger.return_list, result_save_path+'train_loss.pkl')
+    epoch_level_logger.train_or_valid = 'valid'
+    pklSave(epoch_level_logger.return_list, result_save_path+'valid_loss.pkl')
 
-    if epoch % log_interval == 0 or epoch == 1:
-        epoch_level_logger.train_or_valid = 'train'
-        pklSave(epoch_level_logger.return_list, result_save_path+'train_loss.pkl')
-        epoch_level_logger.train_or_valid = 'valid'
-        pklSave(epoch_level_logger.return_list, result_save_path+'valid_loss.pkl')
-
-        if epoch > 1:
-            if epoch_level_logger.return_list()[-1] >= epoch_level_logger.return_list()[-2]:
-                break
-            elif epoch_level_logger.return_list()[-2] - epoch_level_logger.return_list()[-1] <= 1e-5:
-                break
-            else:
-                modelname = "epoch-%s.pth.tar" % epoch
-                torch.save(model, result_save_path + modelname)
+    if epoch % log_interval == 0:
+        if epoch_level_logger.return_list()[-1] >= epoch_level_logger.return_list()[-log_interval]:
+            break
+        elif epoch_level_logger.return_list()[-log_interval] - epoch_level_logger.return_list()[-1] <= 1e-5:
+            break
+        else:
+            modelname = "epoch-%s.pth.tar" % epoch
+            torch.save(model, result_save_path + modelname)
