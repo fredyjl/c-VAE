@@ -12,7 +12,7 @@ def singername_from_MIR1Kfilename(MIR1Kfilename):
     return MIR1Kfilename.split('/')[-1].split('.')[0].split('_')[0]
 
 class MIR1Kdataset(Dataset):
-    def __init__(self, data_path, sr=16000, transform=None):
+    def __init__(self, data_path, sr=16000, poly=False, transform=None):
         """
         Args:
             data_path: the Dictionary containing key 'wav' and 'pitch', 
@@ -23,6 +23,7 @@ class MIR1Kdataset(Dataset):
         self.data_path = data_path
         self.sr = sr
         self.transform = transform
+        self.poly = poly
 
         assert 'wav' in self.data_path.keys()
         assert 'pitch' in self.data_path.keys()
@@ -58,8 +59,11 @@ class MIR1Kdataset(Dataset):
         pitch_id = pitchpath.split('/')[-1].split('.')[0]
         assert wav_id == pitch_id # format: singername_clipid
         # load the audio
-        x, _ = librosa.load(wavpath, sr=self.sr, mono=False)
-        x = x[1]
+        if not self.poly:
+            x, _ = librosa.load(wavpath, sr=self.sr, mono=False)
+            x = x[1]
+        else:
+            x, _ = librosa.load(wavpath, sr=self.sr, mono=True)
         # load the pitch label
         y_pitch = pd.read_csv(pitchpath, header=None).as_matrix().T[0]
         # load the singer label
@@ -100,9 +104,9 @@ class Spectrogram(object):
     def __call__(self, x, sr=16000):
         S = librosa.core.stft(y=x, n_fft=self.n_fft, hop_length=self.hop_size, 
                               center=self.center)
+        S = np.abs(S) ** 2 # convert to magnitude, and power
         S = librosa.feature.melspectrogram(S=S, n_mels=self.n_band)
-        S = np.abs(S) ** 2 # convert amplitude to power
-        S = librosa.core.power_to_db(S)
+        S = librosa.core.power_to_db(S, ref=np.max)
         return S
 
 class RMSenergy(object):

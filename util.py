@@ -8,4 +8,3 @@ def pklLoad(file_name):
     with open(file_name, 'rb') as handle:
         data = pickle.load(handle)
     return(data)
-
