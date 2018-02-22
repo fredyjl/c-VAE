@@ -4,12 +4,13 @@ from torch import nn
 from torch.autograd import Variable
 
 class Cnn_VAE(nn.Module):
-    def __init__(self, input_size=(1, 256, 21), code_size=128):
+    def __init__(self, input_size=(1, 256, 21), code_size=128, encode_only=False):
         super(Cnn_VAE, self).__init__()
         self.input_size = input_size
         self.code_size = code_size
         self.n_band = self.input_size[1]
         self.n_contextwin = self.input_size[2]
+        self.encode_only = encode_only
         # encoder
         self.encoder = nn.Sequential(
             nn.Conv2d(1, 64, (self.n_band, 1), (1, 1)),
@@ -81,11 +82,14 @@ class Cnn_VAE(nn.Module):
             return mu
         
     def forward(self, x):
-        mu, var = self.encode(x)
-        z = self.reparam_trick(mu, var)
-        x_recon = self.decode(z)
-        
-        return x_recon, mu, var
+        if self.encode_only:
+            mu, var = self.encode(x)
+            return mu
+        else:
+            mu, var = self.encode(x)
+            z = self.reparam_trick(mu, var)
+            x_recon = self.decode(z)
+            return x_recon, mu, var
 
 class SelectiveSequential(nn.Module):
     def __init__(self, to_select, modules_dict):
